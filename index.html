@@ -61,7 +61,8 @@
 
         #input-container {
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            gap: 8px;
         }
 
         input[type="text"] {
@@ -70,6 +71,18 @@
             font-size: 1.1rem;
             border: 2px solid var(--primary);
             border-radius: 5px;
+        }
+
+        .quiz-info {
+            font-size: 0.82rem;
+            color: #555;
+            line-height: 1.5;
+            margin: 0 0 5px 5px;
+        }
+
+        .quiz-info ul {
+            margin: 0;
+            padding-left: 20px;
         }
 
         button {
@@ -81,7 +94,7 @@
         }
 
         .btn-giveup { background: var(--danger); color: white; }
-        .btn-action { background: var(--primary); color: white; }
+        .btn-action { background: var(--primary); color: white; margin-bottom: 5px; width: 100%; }
 
         /* Grid Layout */
         .country-section {
@@ -113,7 +126,7 @@
             font-size: 0.85rem;
             text-align: center;
             background: #f9f9f9;
-            color: transparent; /* Hide text until guessed */
+            color: transparent; 
             overflow: hidden;
             padding: 2px;
         }
@@ -131,9 +144,7 @@
         }
 
         .sidebar-controls { margin-bottom: 15px; }
-        .country-item { display: block; margin: 5px 0; font-size: 0.9rem; }
-        
-        .hidden { display: none; }
+        .country-item { display: block; margin: 5px 0; font-size: 0.9rem; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -156,11 +167,17 @@
         </div>
         <div id="input-container">
             <input type="text" id="guess-input" placeholder="Enter club name..." autofocus>
+            <div class="quiz-info">
+                <ul>
+                    <li>All the top division clubs in UEFA member nations are included</li>
+                    <li>For leagues that start in Spring (e.g. Sweden) the 2026 season teams are counted</li>
+                    <li>Since Liechtenstein do not have a domestic league, the teams participating in the Liechtenstein Cup are counted.</li>
+                </ul>
+            </div>
         </div>
     </div>
 
-    <div id="quiz-container">
-        </div>
+    <div id="quiz-container"></div>
 </div>
 
 <script>
@@ -177,25 +194,23 @@
     const scoreDisplay = document.getElementById('percentage');
     const timerDisplay = document.getElementById('timer');
 
-    // 1. Fetch and Parse CSV
     async function loadData() {
         try {
             const response = await fetch('clubs.csv');
             const text = await response.text();
-            const lines = text.split('\n').filter(line => line.trim() !== '');
+            
+            // Aggressive cleaning of line breaks and spaces
+            const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
 
             allData = lines.map(line => {
                 const [country, fullName, alias1, alias2] = line.split(',').map(s => s?.trim() || '');
-                // Sanitize broken characters from encoding issues
-                const cleanName = fullName.replace(/\?/g, 's').replace('Faith', 'Fatih'); 
                 return { 
                     country, 
-                    fullName: cleanName, 
-                    aliases: [cleanName, alias1, alias2].filter(a => a !== '')
+                    fullName, 
+                    aliases: [fullName, alias1, alias2].filter(a => a !== '')
                 };
             });
 
-            // Initial Setup
             const countries = [...new Set(allData.map(d => d.country))];
             countries.forEach(c => enabledCountries.add(c));
             
@@ -204,19 +219,18 @@
             updateStats();
         } catch (err) {
             console.error("Error loading CSV:", err);
-            quizContainer.innerHTML = "<h2>Error loading clubs.csv. Please ensure the file is in the same folder.</h2>";
+            quizContainer.innerHTML = "<h2>Error loading clubs.csv.</h2>";
         }
     }
 
-    // 2. Normalization Logic
     function normalize(str) {
+        if (!str) return "";
         return str.normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "") // Remove accents
-            .replace(/[^a-zA-Z0-9]/g, "")    // Remove spaces/punctuation
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-zA-Z0-9]/g, "")
             .toLowerCase();
     }
 
-    // 3. Rendering Functions
     function renderChecklist(countries) {
         countryChecklist.innerHTML = countries.map(c => `
             <label class="country-item">
@@ -241,29 +255,25 @@
             section.innerHTML = `
                 <h3 class="country-title">${country} (${clubs.length})</h3>
                 <div class="club-grid">
-                    ${clubs.map(club => `
-                        <div class="club-box" id="club-${normalize(club.fullName)}">
+                    ${clubs.map(club => {
+                        const clubId = normalize(club.fullName);
+                        const isGuessed = guessedClubs.has(clubId);
+                        return `<div class="club-box ${isGuessed ? 'guessed' : ''}" id="club-${clubId}">
                             ${club.fullName}
-                        </div>
-                    `).join('')}
+                        </div>`;
+                    }).join('')}
                 </div>
             `;
             quizContainer.appendChild(section);
         }
-        // Re-apply "guessed" class to items if they were already found
-        guessedClubs.forEach(id => {
-            const el = document.getElementById(`club-${id}`);
-            if (el) el.classList.add('guessed');
-        });
     }
 
-    // 4. Game Logic
     guessInput.addEventListener('input', (e) => {
         if (isGameOver) return;
         if (!startTime) startTimer();
 
         const input = normalize(e.target.value);
-        if (input.length < 3) return;
+        if (input.length < 2) return;
 
         allData.forEach(club => {
             if (!enabledCountries.has(club.country)) return;
@@ -271,15 +281,17 @@
             const clubId = normalize(club.fullName);
             if (guessedClubs.has(clubId)) return;
 
-            const isMatch = club.aliases.some(alias => normalize(alias) === input);
+            const matches = club.aliases.some(alias => normalize(alias) === input);
             
-            if (isMatch) {
+            if (matches) {
                 guessedClubs.add(clubId);
                 const el = document.getElementById(`club-${clubId}`);
                 if (el) el.classList.add('guessed');
                 guessInput.value = '';
                 updateStats();
-                checkWin();
+                if (guessedClubs.size === allData.filter(d => enabledCountries.has(d.country)).length) {
+                    endGame(true);
+                }
             }
         });
     });
@@ -287,7 +299,7 @@
     function toggleCountry(country) {
         if (enabledCountries.has(country)) {
             enabledCountries.delete(country);
-            // Remove progress for THIS country only as requested
+            // Wipe progress for the disabled country
             allData.filter(d => d.country === country).forEach(d => {
                 guessedClubs.delete(normalize(d.fullName));
             });
@@ -301,14 +313,12 @@
     function toggleAll(bool) {
         const checkboxes = countryChecklist.querySelectorAll('input');
         checkboxes.forEach(cb => {
-            if (cb.checked !== bool) {
-                cb.checked = bool;
-                const country = cb.getAttribute('data-country');
-                if (bool) enabledCountries.add(country);
-                else {
-                    enabledCountries.delete(country);
-                    allData.filter(d => d.country === country).forEach(d => guessedClubs.delete(normalize(d.fullName)));
-                }
+            cb.checked = bool;
+            const country = cb.getAttribute('data-country');
+            if (bool) enabledCountries.add(country);
+            else {
+                enabledCountries.delete(country);
+                allData.filter(d => d.country === country).forEach(d => guessedClubs.delete(normalize(d.fullName)));
             }
         });
         renderQuiz();
@@ -332,25 +342,16 @@
         }, 1000);
     }
 
-    document.getElementById('giveup-btn').addEventListener('click', () => {
+    document.getElementById('giveup-btn').addEventListener('click', () => endGame(false));
+
+    function endGame(win) {
         isGameOver = true;
         clearInterval(timerInterval);
         guessInput.disabled = true;
-        
         document.querySelectorAll('.club-box').forEach(box => {
-            if (!box.classList.contains('guessed')) {
-                box.classList.add('revealed');
-            }
+            if (!box.classList.contains('guessed')) box.classList.add('revealed');
         });
-    });
-
-    function checkWin() {
-        const totalEnabled = allData.filter(d => enabledCountries.has(d.country)).length;
-        if (guessedClubs.size === totalEnabled && totalEnabled > 0) {
-            isGameOver = true;
-            clearInterval(timerInterval);
-            alert("Congratulations! You've named every club!");
-        }
+        if (win) alert("Well done! Quiz complete.");
     }
 
     loadData();
